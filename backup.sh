@@ -1,14 +1,5 @@
 #!/bin/env bash
 
-#Config file format
-#<type>: <value>
-#where
-#<type> is "db:" or "backup:"
-#<value> is a path to folder for backup, or name of DB to backup. Path should be without / at the end.
-#example:
-#db: siteDatabase
-#backup: /var/www
-
 DATE=$(/bin/date '+%d.%m.%Y %H:%M:%S') #Date to use for logging.
 NAME=$(/bin/date '+%d.%m.%Y')          #Name for folders we are working with.
 Color_Off='\033[0m'
