@@ -1,5 +1,14 @@
 #!/bin/env bash
 
+#Config file format
+#<type>: <value>
+#where
+#<type> is "db:" or "backup:"
+#<value> is a path to folder for backup, or name of DB to backup. Path should be without / at the end.
+#example:
+#db: siteDatabase
+#backup: /var/www
+
 DATE=$(/bin/date '+%d.%m.%Y %H:%M:%S') #Date to use for logging.
 NAME=$(/bin/date '+%d.%m.%Y')          #Name for folders we are working with.
 Color_Off='\033[0m'
@@ -15,6 +24,7 @@ pathArr=()                             #Array with paths to be backed up.
 dbArr=()                               #Array with DB names to be dumped.
 shaFileRem="sha1sum.remote"            #Name of a file with checksums of all created backups.
 shaApp="/usr/bin/sha1sum"              #Path and name of app to create checksum. SHA1 default.
+deny=""                                #Variable with lock value - we can deny launch of "daily" or "weekly" or "all" functions for that host
 
 #Head to the current directory of the script it has been launched from. Check if we are launched from symlink or any other place as subshell process.
 echo "${0}" | egrep -e '^\..*' > /dev/null 2>&1
@@ -63,11 +73,23 @@ while read parameter value; do
             dbArr+=("${value}")
         elif [[ ${parameter} == "backup:" ]]; then
             pathArr+=("${value}")
+        elif [[ ${parameter} == "deny:" ]]; then
+            if [[ "${value}" == "daily" ]] || [[ "${value}" == "weekly" ]] || [[ "${value}" == "all" ]]; then
+                deny=${value}
+            elif [[ ${parameter} == "deny:" ]]; then
+                    echo -e "${Red}Skipping "deny:" parameter with wrong data: ${value}${Color_Off}"
+            fi
         else
-            echo -e "${Red}Skipping string with wrong data: ${parameter} ${value}${Color_Off}"
+            #silent skipping parameter that could be not defined, but showing warning if the parameter is unknown for us
+            if [[ ${parameter} != "deny:" ]]; then
+                echo -e "${Red}Skipping string with wrong data: ${parameter} ${value}${Color_Off}"
+            fi
         fi
     else
-        echo -e "${Red}Skipping wrong string: ${parameter} ${value}${Color_Off}"
+        #silent skipping parameter that could be not defined, but showing warning if the parameter is unknown for us
+        if [[ ${parameter} != "deny:" ]]; then
+            echo -e "${Red}Skipping wrong string: ${parameter} ${value}${Color_Off}"
+        fi
     fi
 done <<< $(cat ${configFile})
 
@@ -79,6 +101,10 @@ fi
 
 #Main function that processes the main task
 if [[ "${1}" == "daily" ]]; then
+    if [[ "${deny}" == "daily" ]] || [[ "${deny}" == "all" ]]; then
+        echo -e "${Red}Daily backups denied by the configuration file!"
+        exit 1
+    fi
     echo -e "${Green}----------------${DATE} Starting daily backups-----------------${Color_Off}"
     if [[ ! -d "${backupsFolder}/daily/${NAME}" ]]; then
         mkdir -p ${backupsFolder}/daily/${NAME}
@@ -125,6 +151,10 @@ if [[ "${1}" == "daily" ]]; then
 fi
 
 if [[ "${1}" == "weekly" ]]; then
+    if [[ "${deny}" == "weekly" ]] || [[ "${deny}" == "all" ]]; then
+        echo -e "${Red}Daily backups denied by the configuration file!"
+        exit 1
+    fi
     echo -e "${Green}-----------------${DATE} Starting weekly backups-----------------${Color_Off}"
     if [[ ! -d "${backupsFolder}/weekly/${NAME}" ]]; then
         mkdir -p ${backupsFolder}/weekly/${NAME}
@@ -158,7 +188,19 @@ if [[ "${1}" == "weekly" ]]; then
         #making backups from list from pathArray
         for (( i=0; i < ${#pathArr[@]}; i++))
         {
-            tar -czf ${pathArr[${i}]}.tar.gz ${pathArr[${i}]} > /dev/null 2>&1
+            #--------very important function - removes aboslute path from $value to get correct name for future archive file and checks for trailing / at all path strings----------
+            #counts how much sybols does our current path has
+            c=$(echo "${pathArr[${i}]}" | wc -c)
+            #check does it contain trailing slash
+            lastSymbol=$(echo "${pathArr[${i}]:((${c}-2)):${c}}")
+            if [[ ${lastSymbol} != "/" ]]; then
+                #if not contains - add the trailing slash symbol
+                pathArr[${i}]="${pathArr[${i}]}/"
+            fi
+            #now generate a correct name for archive file
+            bkpName=$(echo "${pathArr[${i}]}" | cut -d"/" -f $(echo "${pathArr[${i}]}" | grep -o "/" | wc -l))
+            #-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+            tar -czf ${bkpName}.tar.gz ${pathArr[${i}]} > /dev/null 2>&1
             if [[ "${?}" != "0" ]]; then
               echo -e "${Red}\tUnexpected error while creating backups of ${pathArr[${i}]}!Skipping...${Color_Off}"
             fi
